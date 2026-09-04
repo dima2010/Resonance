@@ -138,6 +138,29 @@ two more; both closed:
   keeps writing, and it self-heals after a forced rotation. HTTP regression
   `test_two_concurrent_clients_of_one_subject_selfheal`.
 
+### Live-page boot (folded R13-level fix required for R14's human UI)
+
+An execution finding (#88, cleanly attributed to R13, pre-existing on accepted
+`main`) showed the live product page never boots for a human: (1) the R9 page's
+`boot()` fetches `/api/config` + `/api/context`, which only the R9 demo server
+served, so the live page hung at "Loading accepted context…"; and (2) the strict
+CSP silently refused the injected inline `window.RESONANCE_MODE` script. Because
+R14's human UI (and its match-card "Request intro" control) cannot function on a
+page that never renders cards, and the fix lives in `src/product/server.py` which
+this PR already modifies, both are closed here:
+
+- the live server now serves `/api/config`, `/api/context` (reusing the accepted
+  `demo.ui.server.public_context`), and the `/api/discover` replay feed, so the
+  accepted R9 page boots and renders cards/map/evidence on the live origin;
+- live mode is marked with a `data-resonance-mode="live"` body attribute instead
+  of an inline script, so no CSP relaxation is needed.
+
+Verified live (headless Chrome): `app-shell` reaches `ready`, four match cards
+render, `document.body.dataset.resonanceMode === "live"`, and the collaboration
+panel + hidden placeholder coexist with the working discovery UI. HTTP
+regression `test_live_server_serves_r9_boot_endpoints`; the UI-injection test now
+asserts the data-attribute behaviourally rather than a served string.
+
 ```
 python3 -m unittest tests.test_collaboration -v
 python3 -m unittest tests.test_product_http

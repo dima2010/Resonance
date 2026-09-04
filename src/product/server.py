@@ -48,6 +48,7 @@ from src.persistence.errors import (
     PersistenceValidationError,
 )
 from src.persistence.seed import seed_r7
+from demo.ui.server import load_replay_bytes, public_context
 from src.collaboration import CollaborationError
 from src.security.models import ConfirmationRequired as PolicyConfirmationRequired
 from src.product.service import LiveProductService, ProductError, StaleResultError
@@ -224,9 +225,12 @@ class ProductHandler(BaseHTTPRequestHandler):
         product = self.runtime.product
         if path in {"/", "/index.html"}:
             html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+            # Live mode is marked with a body data-attribute rather than an
+            # inline script, so the strict CSP need not be relaxed (the inline
+            # script was silently refused, leaving window.RESONANCE_MODE null).
+            html = html.replace("<body>", '<body data-resonance-mode="live">', 1)
             injected = html.replace(
                 "</body>",
-                '  <script>window.RESONANCE_MODE = "live";</script>\n'
                 '  <script type="module" src="/webmcp.mjs"></script>\n'
                 '  <script type="module" src="/deeplink.mjs"></script>\n'
                 '  <script type="module" src="/session.mjs"></script>\n'
@@ -234,6 +238,27 @@ class ProductHandler(BaseHTTPRequestHandler):
                 '  <script type="module" src="/collab_ui.mjs"></script>\n</body>',
             )
             self._send_bytes(injected.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if path == "/api/config":
+            # The accepted R9 page boots by fetching config + context; the live
+            # server must serve them (previously only the R9 demo server did, so
+            # the live page hung at "Loading accepted context…").
+            self._send_json({"default_source": "replay"})
+            return
+        if path == "/api/context":
+            self._send_json(public_context())
+            return
+        if path == "/api/discover":
+            # R9-page discovery feed. Replay is the deterministic accepted
+            # capture; the authenticated live product discovery is the separate
+            # /api/product/discover path.
+            source = (params.get("source") or ["replay"])[0]
+            if source not in {"replay", "live"}:
+                self._send_error_json(HTTPStatus.BAD_REQUEST, "validation_failed",
+                                      "source must be replay or live")
+                return
+            self._send_bytes(load_replay_bytes(),
+                             "application/json; charset=utf-8")
             return
         if path in STATIC:
             filename, content_type = STATIC[path]

@@ -304,7 +304,9 @@ class ProductHttpTests(unittest.TestCase):
         request = Request(self.base + "/", headers={"Origin": self.origin})
         with urlopen(request, timeout=10) as response:
             html = response.read().decode("utf-8")
-        self.assertIn('window.RESONANCE_MODE = "live"', html)
+        # live mode is a body data-attribute (no CSP-refused inline script)
+        self.assertIn('data-resonance-mode="live"', html)
+        self.assertNotIn("window.RESONANCE_MODE", html)
         self.assertIn('src="/webmcp.mjs"', html)
         self.assertIn('src="/deeplink.mjs"', html)
         self.assertIn('src="/session.mjs"', html)
@@ -389,6 +391,22 @@ class ProductHttpTests(unittest.TestCase):
             "candidate": r7_dna("ses-gabe-warehouse", "thought-healed"),
             "presentation": dict(PRES)})
         self.assertEqual(prepared["status"], "prepared_private")
+
+    def test_live_server_serves_r9_boot_endpoints(self):
+        # The accepted R9 page boots by fetching these; the live server must
+        # serve them or the page hangs at "Loading accepted context…".
+        client = self.client()
+        status, config, _ = client.request("GET", "/api/config", origin=False,
+                                            csrf=False)
+        self.assertIn("default_source", config)
+        status, context, _ = client.request("GET", "/api/context", origin=False,
+                                             csrf=False)
+        self.assertIn("active_thought", context)
+        request = Request(self.base + "/api/discover?source=replay")
+        with urlopen(request, timeout=10) as response:
+            feed = json.loads(response.read())
+        self.assertIn("matches", feed)
+        self.assertTrue(feed["matches"])
 
     def test_collab_ui_has_intro_initiation_and_hides_stale_placeholder(self):
         with urlopen(Request(self.base + "/collab_ui.mjs"), timeout=10) as response:
